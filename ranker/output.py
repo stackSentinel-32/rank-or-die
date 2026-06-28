@@ -69,21 +69,37 @@ def _compute_ml_yoe(career_roles: list) -> float:
     return ml_months / 12.0
 
 
-def _geo_status(geo_bucket: str, willing_relocate: bool) -> str:
+def _geo_status(geo_bucket: str) -> str:
     if geo_bucket == "preferred_city":
-        return "India-preferred"
+        return "India (preferred city)"
     elif geo_bucket == "india_other":
         return "India"
-    elif willing_relocate:
-        return "International+willing"
     else:
-        return "International"
+        return "international"
 
 
 def _github_status(github_score: float) -> str:
     if github_score > 0:
-        return f"active({github_score:.0f})"
-    return "not linked"
+        return "GitHub active"
+    elif github_score == 0:
+        return "GitHub inactive"
+    return "GitHub not linked"
+
+
+def _retrieval_skills(skill_set: set, n: int = 3) -> tuple[int, str]:
+    """Return count and top-n retrieval skills (TIER1 first, then TIER2_NLP_IR to fill)."""
+    tier1_hits = [s for s in skill_set if s in TIER1_RETRIEVAL]
+    # sort by tier weight descending (all TIER1 = 4.0, so stable order)
+    selected = tier1_hits[:n]
+    if len(selected) < n:
+        for s in skill_set:
+            if s in TIER2_NLP_IR and s not in selected:
+                selected.append(s)
+            if len(selected) >= n:
+                break
+    count = len([s for s in skill_set if s in TIER1_RETRIEVAL])
+    top_str = ", ".join(selected[:n])
+    return count, top_str
 
 
 def generate_reasoning(
@@ -100,33 +116,66 @@ def generate_reasoning(
     Generate a human-readable reasoning string for a ranked candidate.
     Every slot is filled from actual computed values — no hallucination.
     """
-    yoe         = features.get("years_exp", 0.0)
-    skill_set   = features.get("skill_set", set())
-    assess      = features.get("assessment_scores", {})
-    company     = features.get("current_company", "")
+    # --- Raw features ---
+    yoe          = features.get("years_exp", 0.0)
+    skill_set    = features.get("skill_set", set())
+    assess       = features.get("assessment_scores", {})
+    company_raw  = features.get("current_company", "")
+    industry     = features.get("current_industry", "")
+    company_size = features.get("company_size", "")
     career_roles = features.get("career_roles", [])
-    notice      = features.get("notice_days", 999)
-    geo_bucket  = features.get("geo_bucket", "international")
-    willing     = features.get("willing_relocate", False)
-    github      = features.get("github_score", -1)
+    notice       = features.get("notice_days", 999)
+    geo_bucket   = features.get("geo_bucket", "international")
+    github       = features.get("github_score", -1)
+    title_raw    = features.get("current_title", "")
 
-    top3        = _top_skills(skill_set, n=3)
-    assess_note = _assessment_note(assess)
-    co_type     = _company_type(company)
-    ml_yoe      = _compute_ml_yoe(career_roles)
-    geo_stat    = _geo_status(geo_bucket, willing)
-    gh_stat     = _github_status(github)
-    hp_note     = " [HONEYPOT]" if is_honeypot else ""
+    # --- Slots ---
+    title = title_raw.title() if title_raw.strip() else "ML Engineer"
+    company = company_raw.title() if company_raw.strip() else "Unknown"
 
-    # Build assess segment only if non-empty
-    assess_seg  = f" | {assess_note}" if assess_note else ""
+    # company_type
+    company_lower = company_raw.lower()
+    if any(w in company_lower for w in WITCH_COMPANIES):
+        co_type = "outsourcing"
+    else:
+        # parse company_size upper bound
+        size_upper = 0
+        if company_size:
+            try:
+                size_upper = int(str(company_size).split("-")[-1].replace("+", "").strip())
+            except (ValueError, IndexError):
+                size_upper = 0
+        if "software" in industry and 0 < size_upper < 1000:
+            co_type = "startup"
+        elif "software" in industry:
+            co_type = "product"
+        else:
+            co_type = "consulting"
+
+    # retrieval skill count and top3 string (TIER1 first, fill with TIER2_NLP_IR)
+    skill_count, top3 = _retrieval_skills(skill_set, n=3)
+
+    # assessment note
+    if assess:
+        best_score = max(assess.values())
+        assess_note = f"assessed {best_score:.0%}; "
+    else:
+        assess_note = ""
+
+    ml_yoe   = _compute_ml_yoe(career_roles)
+    geo_stat = _geo_status(geo_bucket)
+    gh_stat  = _github_status(github)
+    hp_note  = " [HONEYPOT]" if is_honeypot else ""
 
     reasoning = (
-        f"{yoe:.1f}yr exp | Skills: {top3}{assess_seg} | "
-        f"{co_type} at {company} | ML YOE ~{ml_yoe:.1f}yr | "
-        f"Notice {notice}d | {geo_stat} | GitHub {gh_stat} | "
-        f"Keyword {keyword_score:.2f} TF-IDF {tfidf_score:.2f} Semantic {semantic_score:.2f} -> "
-        f"Skill fused × Avail {availability:.2f} + Geo {geo_bonus:.2f} = {final_score:.3f}{hp_note}"
+        f"{title} with {yoe:.1f} yrs at {company} ({co_type}); "
+        f"{skill_count} retrieval skills ({top3}); "
+        f"{assess_note}"
+        f"ML YOE {ml_yoe:.1f} yrs; "
+        f"notice {notice}d; "
+        f"{geo_stat}; "
+        f"{gh_stat}; "
+        f"score {final_score:.3f}.{hp_note}"
     )
     return reasoning
 
