@@ -47,7 +47,7 @@ def main():
         print("\n  PASS — No forbidden characters in any row.")
 
     # ----------------------------------------------------------------
-    # CHECK 2 — Reasoning length
+    # CHECK 2 - Reasoning length
     # ----------------------------------------------------------------
     print("\n--- CHECK 2: Reasoning length ---")
     lengths = [(int(r["rank"]), len(r["reasoning"])) for r in rows]
@@ -56,26 +56,26 @@ def main():
     print(f"  Shortest reasoning: {min(l for _, l in lengths)} chars")
     print(f"  Average: {sum(l for _, l in lengths) / len(lengths):.0f} chars")
     if max_len <= 220:
-        print("  PASS — All reasonings are ≤ 220 characters.")
+        print("  PASS - All reasonings are <= 220 characters.")
     else:
-        print(f"  FAIL — Longest reasoning is {max_len} chars (limit: 220).")
+        print(f"  FAIL - Longest reasoning is {max_len} chars (limit: 220).")
         print(f"  Offending row (rank {max_len_rank}): {rows_by_rank[max_len_rank]['reasoning']}")
 
     # ----------------------------------------------------------------
-    # CHECK 3 — No empty reasoning
+    # CHECK 3 - No empty reasoning
     # ----------------------------------------------------------------
     print("\n--- CHECK 3: No empty reasoning ---")
     empty = [int(r["rank"]) for r in rows if not r["reasoning"] or r["reasoning"].strip() == ""]
     too_short = [int(r["rank"]) for r in rows if len(r["reasoning"]) < 60]
     if empty:
-        print(f"  FAIL — {len(empty)} empty reasoning strings at ranks: {empty}")
+        print(f"  FAIL - {len(empty)} empty reasoning strings at ranks: {empty}")
     elif too_short:
-        print(f"  FAIL — {len(too_short)} reasoning strings < 60 chars at ranks: {too_short}")
+        print(f"  FAIL - {len(too_short)} reasoning strings < 60 chars at ranks: {too_short}")
     else:
-        print("  PASS -- All 100 reasoning strings are non-empty and >= 60 chars.")
+        print("  PASS - All 100 reasoning strings are non-empty and >= 60 chars.")
 
     # ----------------------------------------------------------------
-    # CHECK 4 — Score normalization and monotonicity
+    # CHECK 4 - Score normalization and monotonicity
     # ----------------------------------------------------------------
     print("\n--- CHECK 4: Score normalization and monotonicity ---")
     col_scores = [float(r["score"]) for r in rows]
@@ -90,11 +90,11 @@ def main():
     print(f"  All in [0, 1]:       {all_in_range}")
 
     if strictly_decreasing and all_in_range and rank1_score >= 0.90:
-        print("  PASS -- Scores normalized, rank-1 >= 0.90, strictly decreasing.")
+        print("  PASS - Scores normalized, rank-1 >= 0.90, strictly decreasing.")
     elif strictly_decreasing and all_in_range:
-        print(f"  PASS (partial) -- Strictly decreasing, but rank-1={rank1_score:.4f} < 0.90.")
+        print(f"  PASS (partial) - Strictly decreasing, but rank-1={rank1_score:.4f} < 0.90.")
     else:
-        print("  FAIL — Scores not strictly decreasing or outside [0, 1] range.")
+        print("  FAIL - Scores not strictly decreasing or outside [0, 1] range.")
 
     # ----------------------------------------------------------------
     # Summary
@@ -112,3 +112,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
