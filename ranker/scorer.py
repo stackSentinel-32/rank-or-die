@@ -227,3 +227,147 @@ def score_tfidf_batch(
 
     # Step 6 — cosine is already in [0, 1]; return as Python floats
     return [float(s) for s in raw_scores]
+
+
+# ---------------------------------------------------------------------------
+# Signal C — Semantic embedding scoring (bge-micro-v2)
+# ---------------------------------------------------------------------------
+
+try:
+    from sentence_transformers import SentenceTransformer as _SentenceTransformer
+    import numpy as _np
+    _SEMANTIC_AVAILABLE = True
+except ImportError:
+    _SEMANTIC_AVAILABLE = False
+
+# Ordered tier sets for top-skill selection in Signal C
+_TIER_ORDER = [
+    TIER1_RETRIEVAL,
+    TIER2_NLP_IR,
+    TIER2_RECSYS,
+    TIER3_LLM,
+    TIER3_MLOPS,
+]
+
+
+def _top_skills_by_tier(skill_set: set, n: int = 5) -> list[str]:
+    """Return the top-n skills ranked by tier (highest tier first)."""
+    selected = []
+    for tier in _TIER_ORDER:
+        for skill in skill_set:
+            if skill in tier and skill not in selected:
+                selected.append(skill)
+            if len(selected) >= n:
+                return selected
+    return selected[:n]
+
+
+def load_semantic_model():
+    """
+    Load the bge-micro-v2 model and pre-encode the JD embedding.
+    Call ONCE at pipeline startup.
+
+    Returns:
+        (model, jd_embedding) tuple, or (None, None) if unavailable.
+    """
+    if not _SEMANTIC_AVAILABLE:
+        import warnings
+        warnings.warn(
+            "sentence-transformers not installed. Signal C will return 0.0 for all candidates.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None, None
+
+    try:
+        model = _SentenceTransformer("TaylorAI/bge-micro-v2", device="cpu")
+        jd_embedding = model.encode(
+            [JD_TEXT],
+            batch_size=1,
+            show_progress_bar=False,
+            normalize_embeddings=True,
+        )[0]
+        return model, jd_embedding
+    except Exception as exc:
+        import warnings
+        warnings.warn(
+            f"Failed to load semantic model: {exc}. Signal C will return 0.0.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return None, None
+
+
+def score_semantic_batch(
+    features_list: list[dict],
+    model,
+    jd_embedding,
+    keyword_scores: list[float],
+) -> list[float]:
+    """
+    Signal C — semantic cosine similarity using bge-micro-v2.
+
+    Only embeds candidates with keyword_scores[i] > 0.10.
+    Skipped candidates receive 0.0.
+
+    Returns a list of floats in [0.0, 1.0], same length as features_list.
+    """
+    if not features_list:
+        return []
+
+    # Graceful fallback if model is unavailable
+    if model is None or jd_embedding is None:
+        return [0.0] * len(features_list)
+
+    try:
+        from sklearn.metrics.pairwise import cosine_similarity as _cosine_similarity
+
+        n = len(features_list)
+        results = [0.0] * n
+
+        # Identify which candidates to embed
+        embed_indices = [i for i, s in enumerate(keyword_scores) if s > 0.10]
+
+        if not embed_indices:
+            return results
+
+        # Build input texts for embedding
+        texts_to_embed = []
+        for i in embed_indices:
+            feat = features_list[i]
+            top_skills = _top_skills_by_tier(feat.get("skill_set", set()), n=5)
+            skills_str = " ".join(top_skills)
+            title_str = feat.get("current_title", "")
+            desc_str = feat.get("description_text", "")[:300]
+            combined = (skills_str + " " + title_str + " " + desc_str)[:512]
+            texts_to_embed.append(combined)
+
+        # Encode the filtered batch
+        embeddings = model.encode(
+            texts_to_embed,
+            batch_size=256,
+            show_progress_bar=False,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+        )
+
+        # Cosine similarity: normalized embeddings → dot product = cosine
+        sims = _cosine_similarity([jd_embedding], embeddings).flatten()
+
+        # Shift from [-1, 1] to [0, 1]
+        sims = (sims + 1.0) / 2.0
+
+        # Write back into results at correct indices
+        for result_pos, original_idx in enumerate(embed_indices):
+            results[original_idx] = float(sims[result_pos])
+
+        return results
+
+    except Exception as exc:
+        import warnings
+        warnings.warn(
+            f"score_semantic_batch failed: {exc}. Returning 0.0 for all.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return [0.0] * len(features_list)
