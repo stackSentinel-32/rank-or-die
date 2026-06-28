@@ -153,7 +153,7 @@ def generate_reasoning(
             co_type = "consulting"
 
     # retrieval skill count and top3 string (TIER1 first, fill with TIER2_NLP_IR)
-    skill_count, top3 = _retrieval_skills(skill_set, n=3)
+    skill_count, top3 = _retrieval_skills(skill_set, n=2)
 
     # assessment note
     if assess:
