@@ -1,0 +1,8 @@
+orjson==3.9.15
+python-dateutil==2.9.0
+scikit-learn==1.4.2
+scipy==1.12.0
+rapidfuzz==3.8.1
+sentence-transformers==2.7.0
+# --index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0
