@@ -152,9 +152,6 @@ def generate_reasoning(
         else:
             co_type = "consulting"
 
-    # retrieval skill count and top3 string (TIER1 first, fill with TIER2_NLP_IR)
-    skill_count, top3 = _retrieval_skills(skill_set, n=2)
-
     # assessment note
     if assess:
         best_score = max(assess.values())
@@ -167,17 +164,44 @@ def generate_reasoning(
     gh_stat  = _github_status(github)
     hp_note  = " [HONEYPOT]" if is_honeypot else ""
 
-    reasoning = (
-        f"{title} with {yoe:.1f} yrs at {company} ({co_type}); "
-        f"{skill_count} retrieval skills ({top3}); "
-        f"{assess_note}"
-        f"ML YOE {ml_yoe:.1f} yrs; "
-        f"notice {notice}d; "
-        f"{geo_stat}; "
-        f"{gh_stat}; "
-        f"score {final_score:.3f}.{hp_note}"
-    )
+    # Dynamic length constraint: Try top 2, then 1, then 0 skills to fit within 220 chars.
+    # If still too long, truncate title and company.
+    reasoning = ""
+    for n_skills in [2, 1, 0]:
+        skill_count, top3 = _retrieval_skills(skill_set, n=n_skills)
+        reasoning = (
+            f"{title} with {yoe:.1f} yrs at {company} ({co_type}); "
+            f"{skill_count} retrieval skills ({top3}); "
+            f"{assess_note}"
+            f"ML YOE {ml_yoe:.1f} yrs; "
+            f"notice {notice}d; "
+            f"{geo_stat}; "
+            f"{gh_stat}; "
+            f"score {final_score:.3f}.{hp_note}"
+        )
+        if len(reasoning) <= 220:
+            break
+
+    # If it is still too long after dropping skills, truncate title and company
+    if len(reasoning) > 220:
+        if len(title) > 15:
+            title = title[:12] + "..."
+        if len(company) > 15:
+            company = company[:12] + "..."
+        skill_count, top3 = _retrieval_skills(skill_set, n=0)
+        reasoning = (
+            f"{title} with {yoe:.1f} yrs at {company} ({co_type}); "
+            f"{skill_count} retrieval skills ({top3}); "
+            f"{assess_note}"
+            f"ML YOE {ml_yoe:.1f} yrs; "
+            f"notice {notice}d; "
+            f"{geo_stat}; "
+            f"{gh_stat}; "
+            f"score {final_score:.3f}.{hp_note}"
+        )
+
     return reasoning
+
 
 
 def write_csv(ranked_candidates: list[dict], output_path: str) -> None:
