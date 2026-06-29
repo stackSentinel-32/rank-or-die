@@ -11,6 +11,7 @@ from ranker.constants import (
     TIER3_MLOPS,
     NEGATIVE_CV_SPEECH,
     WITCH_COMPANIES,
+    PRODUCT_STARTUPS_INDIA,
     ALL_JD_SKILLS,
 )
 
@@ -78,6 +79,8 @@ def _assessment_override(score_01: float) -> float:
 def _company_ml_mult(company: str, industry: str, company_size: str) -> float:
     if any(w in company for w in WITCH_COMPANIES):
         return 0.25
+    if company in PRODUCT_STARTUPS_INDIA:
+        return 1.0
     if "it services" in industry:
         return 0.40
     if "software" in industry and company_size in {"11-50", "51-200", "201-500"}:
@@ -280,7 +283,7 @@ def load_semantic_model():
         return None, None
 
     try:
-        model = _SentenceTransformer("TaylorAI/bge-micro-v2", device="cpu")
+        model = _SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
         jd_embedding = model.encode(
             [JD_TEXT],
             batch_size=1,

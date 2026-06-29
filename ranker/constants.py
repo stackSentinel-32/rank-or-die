@@ -43,6 +43,18 @@ WITCH_COMPANIES = {
     "tech mahindra", "mphasis", "hexaware", "l&t infotech", "ltimindtree"
 }
 
+PRODUCT_STARTUPS_INDIA = {
+    "razorpay", "zomato", "swiggy", "paytm", "cred", "flipkart",
+    "meesho", "ola", "phonepe", "zepto", "blinkit", "nykaa",
+    "policybazaar", "freshworks", "zoho", "dream11", "unacademy",
+    "byju's", "upgrad", "groww", "slice", "sarvam ai", "krutrim",
+    "rephrase.ai", "yellow.ai", "haptik", "verloop.io", "aganitha",
+    "mad street den", "glance", "inmobi", "locobuzz", "niramai",
+    "pharmeasy", "vedantu", "genpact ai", "linkedin india",
+    "amazon india", "google india", "meta india", "microsoft india",
+    "netflix india", "apple india"
+}
+
 PREFERRED_CITIES = {
     "hyderabad", "pune", "mumbai", "delhi", "noida", "gurgaon", "gurugram",
     "bengaluru", "bangalore", "delhi ncr", "new delhi"

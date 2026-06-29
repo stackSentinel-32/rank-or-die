@@ -12,6 +12,7 @@ from ranker.constants import (
     TIER3_LLM,
     TIER3_MLOPS,
     WITCH_COMPANIES,
+    PRODUCT_STARTUPS_INDIA,
 )
 
 # Ordered tiers for top-skill selection (highest weight first)
@@ -53,10 +54,12 @@ def _company_type(current_company: str) -> str:
     """Classify current company into consulting / unknown."""
     company_lower = current_company.lower().strip()
     if any(w in company_lower for w in WITCH_COMPANIES):
-        return "Consulting"
+        return "outsourcing"
+    if company_lower in PRODUCT_STARTUPS_INDIA:
+        return "startup"
     if not company_lower:
         return "Unknown co"
-    return "Product/startup"
+    return "product"
 
 
 def _compute_ml_yoe(career_roles: list) -> float:
@@ -86,20 +89,20 @@ def _github_status(github_score: float) -> str:
     return "GitHub not linked"
 
 
-def _retrieval_skills(skill_set: set, n: int = 3) -> tuple[int, str]:
-    """Return count and top-n retrieval skills (TIER1 first, then TIER2_NLP_IR to fill)."""
+def _skill_slots(skill_set: set, max_t1: int = 2, max_t2: int = 2) -> tuple[int, str, str]:
+    """
+    Returns:
+        count    – number of TIER1 retrieval skills the candidate has (used for the count label)
+        t1_str   – top-max_t1 TIER1 skill names (shown in parentheses after the count)
+        t2_str   – top-max_t2 TIER2_NLP_IR skill names (shown separately as NLP/IR:, or "" if none)
+    TIER2 skills are NEVER mixed into the TIER1 list.
+    """
     tier1_hits = [s for s in skill_set if s in TIER1_RETRIEVAL]
-    # sort by tier weight descending (all TIER1 = 4.0, so stable order)
-    selected = tier1_hits[:n]
-    if len(selected) < n:
-        for s in skill_set:
-            if s in TIER2_NLP_IR and s not in selected:
-                selected.append(s)
-            if len(selected) >= n:
-                break
-    count = len([s for s in skill_set if s in TIER1_RETRIEVAL])
-    top_str = ", ".join(selected[:n])
-    return count, top_str
+    tier2_hits = [s for s in skill_set if s in TIER2_NLP_IR]
+    count  = len(tier1_hits)
+    t1_str = ", ".join(tier1_hits[:max_t1])
+    t2_str = ", ".join(tier2_hits[:max_t2])
+    return count, t1_str, t2_str
 
 
 def generate_reasoning(
@@ -137,6 +140,8 @@ def generate_reasoning(
     company_lower = company_raw.lower()
     if any(w in company_lower for w in WITCH_COMPANIES):
         co_type = "outsourcing"
+    elif company_lower in PRODUCT_STARTUPS_INDIA:
+        co_type = "startup"
     else:
         # parse company_size upper bound
         size_upper = 0
@@ -164,14 +169,16 @@ def generate_reasoning(
     gh_stat  = _github_status(github)
     hp_note  = " [HONEYPOT]" if is_honeypot else ""
 
-    # Dynamic length constraint: Try top 2, then 1, then 0 skills to fit within 220 chars.
+    # Dynamic length constraint: try max_t1=2 then 1 then 0 to fit within 220 chars.
     # If still too long, truncate title and company.
     reasoning = ""
-    for n_skills in [2, 1, 0]:
-        skill_count, top3 = _retrieval_skills(skill_set, n=n_skills)
+    for max_t1 in [2, 1, 0]:
+        skill_count, t1_str, t2_str = _skill_slots(skill_set, max_t1=max_t1, max_t2=2)
+        skill_word  = "retrieval skill" if skill_count == 1 else "retrieval skills"
+        nlp_ir_part = f"; NLP/IR: {t2_str}" if t2_str else ""
         reasoning = (
             f"{title} with {yoe:.1f} yrs at {company} ({co_type}); "
-            f"{skill_count} retrieval skills ({top3}); "
+            f"{skill_count} {skill_word} ({t1_str}){nlp_ir_part}; "
             f"{assess_note}"
             f"ML YOE {ml_yoe:.1f} yrs; "
             f"notice {notice}d; "
@@ -182,16 +189,17 @@ def generate_reasoning(
         if len(reasoning) <= 220:
             break
 
-    # If it is still too long after dropping skills, truncate title and company
+    # If still too long after dropping skills, truncate title and company
     if len(reasoning) > 220:
         if len(title) > 15:
             title = title[:12] + "..."
         if len(company) > 15:
             company = company[:12] + "..."
-        skill_count, top3 = _retrieval_skills(skill_set, n=0)
+        skill_count, t1_str, t2_str = _skill_slots(skill_set, max_t1=0, max_t2=0)
+        skill_word = "retrieval skill" if skill_count == 1 else "retrieval skills"
         reasoning = (
             f"{title} with {yoe:.1f} yrs at {company} ({co_type}); "
-            f"{skill_count} retrieval skills ({top3}); "
+            f"{skill_count} {skill_word} ({t1_str}); "
             f"{assess_note}"
             f"ML YOE {ml_yoe:.1f} yrs; "
             f"notice {notice}d; "
