@@ -185,24 +185,6 @@ def main():
             if not rec["is_honeypot"]:
                 top_100.append(rec)
 
-    # ------------------------------------------------------------------
-    # Min-max normalize scores across top-100 to use full [0, 1] range
-    # Rank 1 → close to 1.0, Rank 100 → close to 0.0
-    # ------------------------------------------------------------------
-    scores = [rec["final"] for rec in top_100]
-    min_s = min(scores)
-    max_s = max(scores)
-    if max_s > min_s:
-        for rec in top_100:
-            rec["final_normalized"] = (rec["final"] - min_s) / (max_s - min_s)
-    else:
-        for rec in top_100:
-            rec["final_normalized"] = rec["final"]
-
-    log.info(
-        f"Normalized scores: rank-1={top_100[0]['final_normalized']:.4f}  "
-        f"rank-100={top_100[-1]['final_normalized']:.4f}"
-    )
 
     # Build ranked CSV rows
     csv_rows = []
@@ -220,7 +202,7 @@ def main():
         csv_rows.append({
             "candidate_id": rec["candidate_id"],
             "rank": rank,
-            "score": rec["final_normalized"],   # normalized score in CSV column
+            "score": rec["final"],
             "reasoning": reasoning,
         })
 
