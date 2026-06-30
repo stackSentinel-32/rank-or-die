@@ -217,32 +217,71 @@ def write_csv(ranked_candidates: list[dict], output_path: str) -> None:
     Validate the final top-100 list then write it to a CSV file.
 
     Expects each dict to have: candidate_id, rank, score, reasoning.
-    Raises AssertionError with a message if any validation fails.
+
+    Raises ValueError (never AssertionError) so validation always executes
+    identically regardless of whether Python is run with -O / PYTHONOPTIMIZE.
     """
-    # --- Assertions ---
-    assert len(ranked_candidates) == 100, (
-        f"Expected 100 rows, got {len(ranked_candidates)}"
-    )
+    # --- Validation ---
 
-    assert len({c["candidate_id"] for c in ranked_candidates}) == 100, (
-        "Duplicate candidate IDs in top-100"
-    )
+    # 1. Row count
+    n = len(ranked_candidates)
+    if n != 100:
+        raise ValueError(
+            f"Row count validation failed: expected 100 rows, got {n}."
+        )
 
+    # 2. Unique candidate IDs
+    seen_ids: set[str] = set()
+    for c in ranked_candidates:
+        cid = c["candidate_id"]
+        if cid in seen_ids:
+            raise ValueError(
+                f"Duplicate candidate ID detected in top-100: '{cid}'."
+            )
+        seen_ids.add(cid)
+
+    # 3. Rank sequence must be 1..100 in order
+    for i, c in enumerate(ranked_candidates):
+        expected_rank = i + 1
+        if c["rank"] != expected_rank:
+            raise ValueError(
+                f"Rank sequence error at position {i}: "
+                f"expected rank {expected_rank}, got {c['rank']} "
+                f"(candidate '{c['candidate_id']}')."
+            )
+
+    # 4. Score ordering: non-increasing (ties allowed), with tie-break on
+    #    ascending candidate_id when scores are equal.
     scores = [c["score"] for c in ranked_candidates]
-    assert all(scores[i] > scores[i + 1] for i in range(99)), (
-        "Scores not strictly decreasing"
-    )
+    for i in range(99):
+        s_curr = scores[i]
+        s_next = scores[i + 1]
+        cid_curr = ranked_candidates[i]["candidate_id"]
+        cid_next = ranked_candidates[i + 1]["candidate_id"]
 
-    assert all(c["rank"] == i + 1 for i, c in enumerate(ranked_candidates)), (
-        "Ranks are wrong (expected 1..100 in order)"
-    )
+        if s_next > s_curr:
+            raise ValueError(
+                f"Score ordering violation at ranks {i + 1}-{i + 2}: "
+                f"score {s_next:.6f} ('{cid_next}') is greater than "
+                f"{s_curr:.6f} ('{cid_curr}'). Scores must be non-increasing."
+            )
 
+        if s_next == s_curr and cid_next < cid_curr:
+            raise ValueError(
+                f"Tie-break ordering violation at ranks {i + 1}-{i + 2}: "
+                f"candidates '{cid_curr}' and '{cid_next}' share score "
+                f"{s_curr:.6f} but are not ordered by ascending candidate_id."
+            )
+
+    # 5. Honeypot budget
     honeypot_count = sum(
         1 for c in ranked_candidates if "[HONEYPOT]" in c.get("reasoning", "")
     )
-    assert honeypot_count <= 10, (
-        f"Too many honeypots in top-100: {honeypot_count} (limit is 10)"
-    )
+    if honeypot_count > 10:
+        raise ValueError(
+            f"Honeypot budget exceeded: {honeypot_count} honeypot candidates "
+            f"in top-100 (limit is 10)."
+        )
 
     # --- Write CSV ---
     with open(output_path, "w", newline="", encoding="utf-8") as f:
@@ -259,3 +298,13 @@ def write_csv(ranked_candidates: list[dict], output_path: str) -> None:
     print(f"[output] Wrote {len(ranked_candidates)} rows to {output_path}")
     if honeypot_count:
         print(f"[output] Warning: {honeypot_count} honeypot(s) in top-100")
+
+
+
+
+
+
+
+
+
+
