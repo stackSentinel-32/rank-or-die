@@ -157,33 +157,41 @@ def main():
     # ------------------------------------------------------------------
     # PHASE 4 — Pick top 100 with honeypot budget enforcement
     # ------------------------------------------------------------------
-    log.info("Phase 4: Selecting top-100 (honeypot budget ≤ 10)...")
+    log.info("Phase 4: Selecting top-100 (honeypot budget <= 10)...")
 
-    # Sort by final score descending; break ties alphabetically by candidate_id
+    # Sort by final score descending; break ties alphabetically by candidate_id.
+    # This order is the authoritative ranking — we never re-order after this.
     final_records.sort(key=lambda r: (-r["final"], r["candidate_id"]))
 
-    top_300 = final_records[:300]
-
-    top_100 = []
+    # Single linear pass over the entire sorted list.
+    # Reasons for not limiting to a fixed window (e.g. top-300):
+    #   - When many honeypots cluster near the top, the first 300 records may
+    #     contain fewer than 90 non-honeypot candidates, causing under-selection.
+    #   - The old backfill incorrectly excluded honeypots even when budget remained.
+    top_100: list = []
     honeypot_count = 0
-    for rec in top_300:
+    for rec in final_records:
         if len(top_100) == 100:
             break
         if rec["is_honeypot"]:
-            if honeypot_count < 10:
+            if honeypot_count < 10:          # budget still available
                 top_100.append(rec)
                 honeypot_count += 1
-            # else skip this honeypot — budget exhausted
+            # else: budget exhausted — skip this honeypot and keep scanning
         else:
             top_100.append(rec)
 
-    # If still fewer than 100, pull from the rest of final_records (non-honeypot)
+    # Post-condition: the pipeline must always emit exactly 100 rows.
+    # If we get here with fewer than 100 it means the pool genuinely does not
+    # contain 100 valid (non-budget-busting) candidates — surface this clearly
+    # rather than letting write_csv's assertion raise an opaque AssertionError.
     if len(top_100) < 100:
-        for rec in final_records[300:]:
-            if len(top_100) == 100:
-                break
-            if not rec["is_honeypot"]:
-                top_100.append(rec)
+        raise RuntimeError(
+            f"Cannot build a valid Top-100: only {len(top_100)} candidates "
+            f"survived after applying the honeypot budget (limit=10, found="
+            f"{honeypot_count}). Total pool size was {len(final_records)}. "
+            "Consider relaxing filters or increasing the honeypot budget."
+        )
 
 
     # Build ranked CSV rows
