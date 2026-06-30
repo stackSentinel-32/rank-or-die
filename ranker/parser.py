@@ -143,7 +143,7 @@ def extract_features(raw: dict) -> dict:
         
     # honeypot: instant_expert
     for s_name, s_data in skill_map.items():
-        if s_data["proficiency"] == "advanced" and s_data["duration_months"] <= 1:
+        if s_data["proficiency"] in ("expert", "advanced") and s_data["duration_months"] <= 1:
             honeypot_flags.append("instant_expert")
             
     # honeypot: education_timeline
