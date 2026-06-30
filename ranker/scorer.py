@@ -45,7 +45,7 @@ def _tier_weight(skill_name: str) -> float:
 
 
 def _proficiency_mult(proficiency: str) -> float:
-    if proficiency == "advanced":
+    if proficiency in ("expert", "advanced"):
         return 1.0
     if proficiency == "intermediate":
         return 0.7
