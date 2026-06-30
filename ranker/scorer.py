@@ -283,7 +283,7 @@ def load_semantic_model():
         return None, None
 
     try:
-        model = _SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+        model = _SentenceTransformer("TaylorAI/bge-micro-v2", device="cpu")
         jd_embedding = model.encode(
             [JD_TEXT],
             batch_size=1,
