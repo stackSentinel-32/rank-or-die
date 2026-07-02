@@ -246,7 +246,7 @@ def write_csv(ranked_candidates: list[dict], output_path: str) -> None:
 
     # --- Write CSV ---
     with open(output_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+        writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL)
         writer.writerow(["candidate_id", "rank", "score", "reasoning"])
         for c in ranked_candidates:
             writer.writerow([
