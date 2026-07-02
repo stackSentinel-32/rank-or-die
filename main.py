@@ -7,11 +7,12 @@ Usage:
 import argparse
 import logging
 import time
+from concurrent.futures import ProcessPoolExecutor
 
 import orjson
 
 from ranker.parser import extract_features
-from ranker.filters import apply_filters, print_filter_summary
+from ranker.filters import apply_filters, print_filter_summary, FILTER_COUNTS
 from ranker.scorer import (
     score_keywords,
     score_tfidf_batch,
@@ -22,6 +23,25 @@ from ranker.scorer import (
 from ranker.fusion import rrf_fusion
 from ranker.signals import compute_availability
 from ranker.output import generate_reasoning, write_csv
+
+
+# ---------------------------------------------------------------------------
+# Top-level helper — MUST live at module scope to be picklable by
+# ProcessPoolExecutor on Windows (which uses 'spawn', not 'fork').
+# ---------------------------------------------------------------------------
+def _process_record(raw: dict) -> tuple[dict | None, bool, bool, str]:
+    """
+    Extract features and apply filters for a single raw JSON record.
+
+    Returns:
+        (features, should_discard, is_honeypot, discard_reason)
+    Note: FILTER_COUNTS cannot be updated here — each worker process has its
+    own copy of the module. Counts are returned as part of the tuple and
+    aggregated in the main process.
+    """
+    features = extract_features(raw)
+    result = apply_filters(features)
+    return (features, result.should_discard, result.is_honeypot, result.discard_reason)
 
 
 def main():
@@ -66,34 +86,47 @@ def main():
     log.info(f"Model loaded in {t_model:.1f}s")
 
     # ------------------------------------------------------------------
-    # PHASE 1 — Stream + filter
+    # PHASE 1 — Parallel parse + filter
     # ------------------------------------------------------------------
-    log.info(f"Streaming candidates from: {args.input}")
+    log.info(f"Reading candidates from: {args.input}")
 
+    # Step 1a: fast sequential I/O — read all raw records into memory first.
+    # orjson.loads is very fast; the bottleneck is extract_features + apply_filters.
+    with open(args.input, "rb") as f:
+        raw_records = [orjson.loads(line) for line in f if line.strip()]
+    counts = {"read": len(raw_records), "discarded": 0, "survived": 0, "honeypots": 0}
+    log.info(f"Read {counts['read']:,} raw records in {time.perf_counter() - t0:.1f}s")
+
+    # Step 1b: parallel feature extraction + filtering.
+    # _process_record is defined at module scope so it is picklable on Windows.
     survivors = []
     honeypot_set = set()
-    counts = {"read": 0, "discarded": 0, "survived": 0, "honeypots": 0}
+    local_filter_counts: dict[str, int] = {k: 0 for k in FILTER_COUNTS}
 
-    with open(args.input, "rb") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            raw = orjson.loads(line)
-            counts["read"] += 1
-
-            features = extract_features(raw)
-            result = apply_filters(features)
-
-            if result.should_discard:
+    with ProcessPoolExecutor(max_workers=4) as pool:
+        for features, should_discard, is_honeypot, discard_reason in pool.map(
+            _process_record, raw_records, chunksize=2000
+        ):
+            if should_discard:
                 counts["discarded"] += 1
+                local_filter_counts[discard_reason] = (
+                    local_filter_counts.get(discard_reason, 0) + 1
+                )
                 continue
 
-            if result.is_honeypot:
+            if is_honeypot:
                 counts["honeypots"] += 1
                 honeypot_set.add(features["candidate_id"])
+                local_filter_counts["honeypot"] = local_filter_counts.get("honeypot", 0) + 1
 
             survivors.append(features)
             counts["survived"] += 1
+            local_filter_counts["passed"] = local_filter_counts.get("passed", 0) + 1
+
+    # Merge worker counts back into the module-level dict for print_filter_summary()
+    for key, val in local_filter_counts.items():
+        if key in FILTER_COUNTS:
+            FILTER_COUNTS[key] += val
 
     t_phase1 = time.perf_counter() - t0
     log.info(
@@ -112,8 +145,11 @@ def main():
     # ------------------------------------------------------------------
     # PHASE 2 — Batch scoring (three signals)
     # ------------------------------------------------------------------
-    log.info("Phase 2: Computing Signal A (keyword)...")
-    keyword_scores = [score_keywords(f) for f in survivors]
+    log.info("Phase 2: Computing Signal A (keyword) — parallel...")
+    # score_keywords is a pure function with no shared state, making it
+    # safe to parallelise. chunksize=2000 amortises process-pool overhead.
+    with ProcessPoolExecutor(max_workers=4) as pool:
+        keyword_scores = list(pool.map(score_keywords, survivors, chunksize=2000))
 
     log.info("Phase 2: Computing Signal B (TF-IDF)...")
     tfidf_scores = score_tfidf_batch(survivors, JD_TEXT)

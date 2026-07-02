@@ -2,8 +2,7 @@ venv/
 __pycache__/
 *.pyc
 .env
-
-data/*
-!data/output.csv
+data/
 candidates.jsonl
 *.jsonl
+output.csv
